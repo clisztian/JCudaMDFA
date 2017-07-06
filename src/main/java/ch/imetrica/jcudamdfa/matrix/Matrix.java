@@ -9,6 +9,8 @@ import jcuda.Pointer;
 import jcuda.Sizeof;
 import static jcuda.jcublas.JCublas2.cublasCreate;
 import static jcuda.jcublas.JCublas2.cublasDestroy;
+import static jcuda.jcublas.JCublas2.cublasDgeam;
+import static jcuda.jcublas.JCublas2.cublasDgemm;
 import static jcuda.jcublas.JCublas2.cublasGetMatrix;
 import static jcuda.jcublas.JCublas2.cublasGetVector;
 import static jcuda.jcublas.JCublas2.cublasIsamax;
@@ -22,6 +24,7 @@ import static jcuda.jcublas.JCublas2.cublasSswap;
 import static jcuda.jcublas.JCublas2.cublasStrmv;
 import static jcuda.jcublas.cublasFillMode.CUBLAS_FILL_MODE_UPPER;
 import static jcuda.jcublas.cublasOperation.CUBLAS_OP_N;
+import static jcuda.jcublas.cublasOperation.CUBLAS_OP_T;
 import static jcuda.runtime.JCuda.cudaFree;
 import static jcuda.runtime.JCuda.cudaMalloc;
 import static jcuda.runtime.JCuda.cudaMemcpy;
@@ -48,6 +51,7 @@ import jcuda.jcurand.curandGenerator;
 import java.util.Arrays;
 import jcuda.jcublas.JCublas;
 import jcuda.jcublas.JCublas2;
+import jcuda.jcublas.JCublas;
 
 import jcuda.jcublas.cublasHandle;
 import jcuda.runtime.JCuda;
@@ -59,7 +63,7 @@ public class Matrix implements Serializable {
 	public int rows;
 	public int cols;
 	public int size;
-	
+
 	//----- JCuda pointers to floats ---------
 	public Pointer w;
 	public double[] data;
@@ -185,6 +189,13 @@ public class Matrix implements Serializable {
 	}
 	
 	
+	public void setOnDevice()
+	{
+		cudaMemcpy(w, Pointer.to(data), this.size * Sizeof.DOUBLE,
+    	        cudaMemcpyHostToDevice);
+	}
+	
+	
     public void rand(double initParamsStdDev, curandGenerator generator) 
     {
     	  	
@@ -238,11 +249,39 @@ public class Matrix implements Serializable {
     	m.data[m.cols*i + j] = v;
     }
     
+    public static void mdfaMatrixSet(final Matrix m, int i, double v) {
+    	   
+    	m.data[i] = v;
+    }
+    
+    
     public static double mdfaMatrixGet(final Matrix m, int i, int j) {
     	   
     	return m.data[m.cols*i + j];
     }
     
+    public static double mdfaMatrixGet(final Matrix m, int i) {
+ 	   
+    	return m.data[i];
+    }
+    
+    
+    public static void mdfaMatrixMult(final Matrix a, final Matrix b, final Matrix out) {
+    	
+    	matrixmultdw1(a.rows, a.cols, b.cols, a.w, b.w, out.w);
+    }
+    
+    
+	public static void matrixmultdw1(int hA, int wA, int wB, Pointer dA, Pointer dB, Pointer out)
+	{
+        JCublas.cublasDgemm('N', 'T', hA, wB, wA, 1.0, dA, hA, dB, wB, 1.0, out, hA);       
+	}
+    
+    
+    public static void mdfaMatrixAdd(final Matrix a, final Matrix b) {
+    	
+    	JCublasInterface.add(a.size, a.w, b.w);
+    }
     
     public void resetToSmall() 
     {
@@ -371,67 +410,100 @@ public class Matrix implements Serializable {
     public static void main(String[] args)
     {
 
+    	
+    	Matrix out = new Matrix(3, 3);    
+        Matrix mat1 = new Matrix(3, 3);        
+        Matrix mat2 = new Matrix(3, 3);
+    	
+        Matrix.mdfaMatrixSet(mat1, 0, 0, 1);
+        Matrix.mdfaMatrixSet(mat1, 0, 1, 1);
+        Matrix.mdfaMatrixSet(mat1, 0, 2, 1);
+        Matrix.mdfaMatrixSet(mat1, 1, 0, .2);
+        Matrix.mdfaMatrixSet(mat1, 1, 1, .2);
+        Matrix.mdfaMatrixSet(mat1, 1, 2, .2);
+        Matrix.mdfaMatrixSet(mat1, 2, 0, 2);
+        Matrix.mdfaMatrixSet(mat1, 2, 1, 2);
+        Matrix.mdfaMatrixSet(mat1, 2, 2, 2);
+      
+        Matrix.mdfaMatrixSet(mat2, 0, 0, 1);
+        Matrix.mdfaMatrixSet(mat2, 0, 1, 1);
+        Matrix.mdfaMatrixSet(mat2, 0, 2, 1);
+        Matrix.mdfaMatrixSet(mat2, 1, 0, 2);
+        Matrix.mdfaMatrixSet(mat2, 1, 1, 2);
+        Matrix.mdfaMatrixSet(mat2, 1, 2, 2);
+        Matrix.mdfaMatrixSet(mat2, 2, 0, 3);
+        Matrix.mdfaMatrixSet(mat2, 2, 1, 3);
+        Matrix.mdfaMatrixSet(mat2, 2, 2, 3);        
+        
+        mat1.setOnDevice();
+        mat2.setOnDevice();
+        
+        Matrix.mdfaMatrixAdd(mat1, mat2);
+        mat1.printMatrix();
         
         // Create a CUBLAS handle
-        cublasHandle handle = new cublasHandle();
-        cublasCreate(handle);
+//        cublasHandle handle = new cublasHandle();
+//        cublasCreate(handle);
+//
+//        // Create the input matrix
+//        int size = 200;
+//        float A[] = createRandomFloatData(size * size);
+//
+//        // Invert the matrix
+//        float invA[] = A.clone();
+//        invertMatrix(handle, size, invA);
+//
+//        // Compute A*invA, which should yield the identity matrix
+//        float identity[] = new float[size * size];
+//        multiply(handle, size, A, invA, identity);
+//
+//        // Print the results
+////        System.out.println("A:");
+////        System.out.println(toString2D(A, size));
+////        System.out.println("invA:");
+////        System.out.println(toString2D(invA, size));
+////        System.out.println("identity:");
+////        System.out.println(toString2D(identity, size));
+//        
+//        // Verify the result
+//        System.out.println("Done...");
+//        boolean passed = true;
+//        final float epsilon = 1e-4f;
+//        for (int i = 0; i < size; i++)
+//        {
+//            for (int j = 0; j < size; j++)
+//            {
+//                int index = i * size + j;
+//                float value = identity[index];
+//                if (i == j)
+//                {
+//                    passed &= Math.abs(value - 1.0f) <= epsilon;
+//                }
+//                else
+//                {
+//                    passed &= Math.abs(value) <= epsilon;
+//                }
+//            }
+//        }
+//        System.out.println((passed ? "PASSED" : "FAILED"));
+//
+//        // Clean up
+//        cublasDestroy(handle);
+//
+//        testPointer();
+//        
+//        
+//        System.out.println("Matrix destroyed");
+//        System.out.println("Vector addition");
+//        
+//        testVectorAddition();
+//        
+//        System.out.println("Test Kernel vector addition");
 
-        // Create the input matrix
-        int size = 200;
-        float A[] = createRandomFloatData(size * size);
-
-        // Invert the matrix
-        float invA[] = A.clone();
-        invertMatrix(handle, size, invA);
-
-        // Compute A*invA, which should yield the identity matrix
-        float identity[] = new float[size * size];
-        multiply(handle, size, A, invA, identity);
-
-        // Print the results
-//        System.out.println("A:");
-//        System.out.println(toString2D(A, size));
-//        System.out.println("invA:");
-//        System.out.println(toString2D(invA, size));
-//        System.out.println("identity:");
-//        System.out.println(toString2D(identity, size));
         
-        // Verify the result
-        System.out.println("Done...");
-        boolean passed = true;
-        final float epsilon = 1e-4f;
-        for (int i = 0; i < size; i++)
-        {
-            for (int j = 0; j < size; j++)
-            {
-                int index = i * size + j;
-                float value = identity[index];
-                if (i == j)
-                {
-                    passed &= Math.abs(value - 1.0f) <= epsilon;
-                }
-                else
-                {
-                    passed &= Math.abs(value) <= epsilon;
-                }
-            }
-        }
-        System.out.println((passed ? "PASSED" : "FAILED"));
-
-        // Clean up
-        cublasDestroy(handle);
-
-        testPointer();
-        
-        
-        System.out.println("Matrix destroyed");
-        System.out.println("Vector addition");
-        
-        testVectorAddition();
-        
-        System.out.println("Test Kernel vector addition");
-
-        
+          out.destroyMatrix();
+          mat1.destroyMatrix();
+          mat2.destroyMatrix();
     }
 
     /**
@@ -525,6 +597,8 @@ public class Matrix implements Serializable {
         return pivots;
     }
 
+
+    
     /***
      * cudaSgetri Computes the inverse of an LU-factorized square matrix
      * 
@@ -628,6 +702,21 @@ public class Matrix implements Serializable {
         cudaFree(dC);
     }
 
+	public void matrixmultip(cublasHandle handle, int hA, int wA, int wB, Pointer dA, Pointer dB, Pointer out)
+	{
+		Pointer zero = Pointer.to(new double[]{ 0.0 });
+        Pointer one = Pointer.to(new double[]{ 1.0 }); 
+        Pointer temp = new Pointer();
+        
+        cudaMalloc(temp, hA*wB*Sizeof.DOUBLE);
+
+        cublasDgemm(handle, CUBLAS_OP_T, CUBLAS_OP_T, hA, wB, wA, one, dA, wA, dB, wB, zero, temp, hA);
+        cublasDgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, wB, hA, one, temp, hA, zero, temp, hA, out, wB);	
+        
+        cudaFree(temp);
+	}
+    
+    
     
     /**
      * Creates an array of the specified size, containing float values from
